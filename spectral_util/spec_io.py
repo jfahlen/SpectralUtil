@@ -16,7 +16,7 @@ numpy_to_gdal = {
 }
 
 class GenericGeoMetadata:
-    def __init__(self, band_names, geotransform=None, projection=None, glt=None, pre_orthod=False, nodata_value=None):
+    def __init__(self, band_names, geotransform=None, projection=None, glt=None, pre_orthod=False, nodata_value=None, loc=None):
         """
         Initializes the GenericGeoMetadata object.
 
@@ -34,6 +34,7 @@ class GenericGeoMetadata:
         self.glt = glt
         self.pre_orthod = False
         self.nodata_value = nodata_value
+        self.loc = loc
 
         if pre_orthod:
             self.orthoable = False
@@ -294,8 +295,6 @@ def open_netcdf(input_file, lazy=True, load_glt=False, load_loc=False):
         return open_airborne_obs(input_file, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
     elif 'ang' in input_file.lower()  and 'rfl' in input_file.lower():
         return open_airborne_rfl(input_file, lazy=lazy)
-    elif 'AV3' in input_file and 'OBS' in input_file:
-        return open_airborne_obs(input_file, lazy=lazy, load_glt=load_glt)
     else:
         raise ValueError(f'Unknown file type for {input_file}')
 
@@ -421,8 +420,10 @@ def open_airborne_obs(input_file, lazy=True, load_glt=False, load_loc=False):
     obs_names = list(ds['observation_parameters'].variables.keys())
 
     nodata_value = float(ds['observation_parameters'][obs_names[0]]._FillValue)
+    glt = None
     if load_glt:
         glt = np.stack([ds['geolocation_lookup_table']['sample'][:],ds['geolocation_lookup_table']['line'][:]],axis=-1)
+    loc = None
     if load_loc:
         loc = np.stack([ds['lon'][:],ds['lat'][:]],axis=-1)
 
@@ -431,16 +432,9 @@ def open_airborne_obs(input_file, lazy=True, load_glt=False, load_loc=False):
         logging.warning("Lazy loading not supported for observation data.")
     obs = np.stack([ds['observation_parameters'][on] for on in obs_names], axis=-1)
     
-    meta = GenericGeoMetadata(obs_names, trans, proj, glt=None, pre_orthod=True, nodata_value=nodata_value)
+    meta = GenericGeoMetadata(obs_names, trans, proj, glt=glt, pre_orthod=True, nodata_value=nodata_value, loc=loc)
 
-    if load_glt and load_loc:
-        return meta, obs, glt, loc
-    elif load_glt:
-        return meta, obs, glt
-    elif load_loc:
-        return meta, obs, loc
-    else:
-        return meta, obs
+    return meta, obs
 
 
 def get_extent_from_obs(input_file, get_resolution=False):
