@@ -113,7 +113,7 @@ def load_data(input_file, lazy=True, load_glt=False, load_loc=False):
         return open_envi(input_file, lazy=True)
     elif input_file.endswith('.nc'):
         return open_netcdf(input_file, lazy=True, load_glt=load_glt, load_loc=load_loc)
-    elif input_file.endswith('.tif'):
+    elif input_file.endswith('.tif') or input_file.endswith('.vrt'):
         return open_tif(input_file, lazy=True)
     else:
         raise ValueError(f'Unknown file type for {input_file}')
