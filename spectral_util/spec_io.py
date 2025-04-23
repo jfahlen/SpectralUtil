@@ -110,11 +110,11 @@ def load_data(input_file, lazy=True, load_glt=False, load_loc=False):
             - numpy.ndarray or netCDF4.Variable: The data, either as a lazy-loaded variable or a fully loaded numpy array.
     """
     if input_file.endswith(('.hdr', '.dat', '.img')) or '.' not in os.path.basename(input_file):
-        return open_envi(input_file, lazy=True)
+        return open_envi(input_file, lazy=lazy)
     elif input_file.endswith('.nc'):
-        return open_netcdf(input_file, lazy=True, load_glt=load_glt, load_loc=load_loc)
+        return open_netcdf(input_file, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
     elif input_file.endswith('.tif') or input_file.endswith('.vrt'):
-        return open_tif(input_file, lazy=True)
+        return open_tif(input_file, lazy=lazy)
     else:
         raise ValueError(f'Unknown file type for {input_file}')
 
@@ -258,7 +258,8 @@ def open_tif(input_file, lazy=False):
             - GenericGeoMetadata: An object containing the wavelengths and FWHM.
             - numpy.ndarray: The data, either as a lazy-loaded memory map or a fully loaded numpy array.
     """
-    logging.warning('Lazy loading not supported for GeoTIFF data.')
+    if lazy:
+        logging.warning('Lazy loading not supported for GeoTIFF data.')
     ds = gdal.Open(input_file)
     proj = ds.GetProjection()
     trans = ds.GetGeoTransform()
