@@ -188,7 +188,6 @@ def join_AV3_scenes_as_VRT(fid, granule_storage_location, output_location,
         my_vrt = gdal.BuildVRT(vrt_filename, rdn_ort_tif_filenames)
         my_vrt = None
     
-    pdb.set_trace()
     if do_rdn:
         rdn_ort_tif_filenames = []
         for folder in folders:
