@@ -16,13 +16,15 @@ import spec_io
 @click.option('--overwrite', is_flag=True, default=False, help='Set to true to overwrite granules (download them again)')
 @click.option('--symlinks_folder', type=click.Path(exists=True, dir_okay=True, file_okay=False), help = 'Location to put symlinks')
 @click.option('--search_only', is_flag=True, default=False, help='Location to put symlinks')
+@click.option('--do_rdn', is_flag=True, default=False, help='Download the radiance data too (this is slow, so only use if needed)')
 def find_download_and_combine(output_folder, 
                               temporal = None, 
                               count = 2000,
                               bounding_box = None,
                               overwrite = False,
                               symlinks_folder = None,
-                              search_only = False):
+                              search_only = False,
+                              do_rdn = False):
     '''Find, download, and combine into VRTs all matching granules and store in OUTPUT_FOLDER
 
     Recommended usage: start with --search_only to review FIDs before downloading
@@ -73,7 +75,7 @@ def find_download_and_combine(output_folder,
 
     for i, (efid, rd, gh) in enumerate(zip(earthaccess_fids, r_rdn, r_ghg)):
         print(f'Downloading {efid}, #{i+1} of {len(earthaccess_fids)}')
-        download_an_AV3_granule(rd, gh, granule_path, overwrite = False)
+        download_an_AV3_granule(rd, gh, granule_path, overwrite = False, do_rdn = do_rdn)
     
     # Get all FIDs, combining all scene IDs into a single FID
     fids = sorted(list(set([x.split('_')[0] for x in earthaccess_fids]))) # Ex: AV320241008t193024
@@ -81,7 +83,7 @@ def find_download_and_combine(output_folder,
     # Make vrt files that combine each scene in a pass into one vrt file
     fids_with_scene_numbers = [] # Ex: AV320231008t145024_000_001
     for fid in fids:
-        fid_with_scene_numbers = join_AV3_scenes_as_VRT(fid, granule_path, output_folder)
+        fid_with_scene_numbers = join_AV3_scenes_as_VRT(fid, granule_path, output_folder, do_rdn = do_rdn)
         fids_with_scene_numbers.append(fid_with_scene_numbers)
         join_AV3_scenes_as_VRT_pixel_time_only(fid, granule_path, output_folder)
     
@@ -127,7 +129,8 @@ def join_AV3_scenes_as_VRT_pixel_time_only(fid, storage_location, output_locatio
 def join_AV3_scenes_as_VRT(fid, granule_storage_location, output_location, 
                            tags_to_join = ['CH4_UNC_ORT', 'CH4_SNS_ORT', 'CH4_ORT', \
                                            'CO2_UNC_ORT', 'CO2_SNS_ORT', 'CO2_ORT'], 
-                           rgb_channel_idx = [0,1,2]):
+                           rgb_channel_idx = [0,1,2],
+                           do_rdn = False):
     '''Combine all the granule files that match {tags_to_join} with {fid} in {granule_storage_location} into 
     vrt files in output_location.
 
@@ -181,9 +184,36 @@ def join_AV3_scenes_as_VRT(fid, granule_storage_location, output_location,
 
             rdn_ort_tif_filenames.append(rdn_ort_tif_filename)
         
+        vrt_filename = os.path.join(output_folder, f'{fid}_{scene_numbers[0]}_{scene_numbers[-1]}_RDN_ORT_QL.vrt')
+        my_vrt = gdal.BuildVRT(vrt_filename, rdn_ort_tif_filenames)
+        my_vrt = None
+    
+    pdb.set_trace()
+    if do_rdn:
+        rdn_ort_tif_filenames = []
+        for folder in folders:
+
+            j = json.load(open(os.path.join(folder, 'data_files.json'),'r'))
+            rdn_filename = j['RDN']
+            obs_filename = j['OBS']
+
+            _, d_rdn = spec_io.load_data(rdn_filename, load_glt = True, lazy = False)
+            m_obs, _ = spec_io.load_data(obs_filename, load_glt = True, lazy = False)
+            rdn_data = spec_io.ortho_data(d_rdn, m_obs.glt)
+
+            # Make orthoed tif so we can create a vrt below
+            rdn_ort_tif_filename = '.'.join(rdn_filename.strip().split('.')[:-1]) + '_ORT.tif'
+            write_geotiff(rdn_data, m_obs, rdn_ort_tif_filename)
+
+            j['RDN_ORT'] = rdn_ort_tif_filename
+            json.dump(j, open(os.path.join(folder, 'data_files.json'),'w'), indent = 4)
+
+            rdn_ort_tif_filenames.append(rdn_ort_tif_filename)
+        
         vrt_filename = os.path.join(output_folder, f'{fid}_{scene_numbers[0]}_{scene_numbers[-1]}_RDN_ORT.vrt')
         my_vrt = gdal.BuildVRT(vrt_filename, rdn_ort_tif_filenames)
         my_vrt = None
+    
     
     return fid_with_scene_numbers
 
@@ -206,7 +236,7 @@ def write_geotiff(data, meta, output_filename):
     outDataset.FlushCache() ##saves to disk!!
     outDataset = None
     
-def download_an_AV3_granule(rdn_granule, ghg_granule, storage_location, overwrite = False):
+def download_an_AV3_granule(rdn_granule, ghg_granule, storage_location, overwrite = False, do_rdn = False):
     name = ghg_granule['meta']['native-id']
     output_folder = os.path.join(storage_location, name)
     download = False
@@ -218,14 +248,19 @@ def download_an_AV3_granule(rdn_granule, ghg_granule, storage_location, overwrit
     
     if download:
         earthaccess.login(persist=True)
-        rdn_files_without_full_RDN = [x for x in rdn_granule.data_links() if 'RDN.nc' not in x]
-        download_from_urls(rdn_files_without_full_RDN, output_folder)
+        rdn_files = rdn_granule.data_links()
+        if not do_rdn:
+            rdn_files = [x for x in rdn_files if 'RDN.nc' not in x]
+
+        download_from_urls(rdn_files, output_folder)
         download_from_urls(ghg_granule.data_links(), output_folder)
 
         tags = ['OBS', 'RDN_QL', 'BANDMASK', \
                 'CH4_SNS_ORT', 'CH4_UNC_ORT', 'CH4_ORT_QL', 'CH4_ORT', \
                 'CO2_SNS_ORT', 'CO2_UNC_ORT', 'CO2_ORT_QL', 'CO2_ORT']
-        make_files_list_from_urls_or_glob(rdn_files_without_full_RDN + ghg_granule.data_links(), tags, output_folder)
+        if do_rdn:
+            tags = tags + ['RDN']
+        make_files_list_from_urls_or_glob(rdn_files + ghg_granule.data_links(), tags, output_folder)
 
     return
 
