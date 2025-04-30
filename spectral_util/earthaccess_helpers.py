@@ -10,17 +10,21 @@ import spec_io
 
 @click.command()
 @click.argument('output_folder', type=click.Path(dir_okay=True, file_okay=False), required=True)
-@click.option('--temporal', type=(click.DateTime(), click.DateTime()), help='Start and end time: %Y-%m-%dT%H:%M:%S %Y-%m-%dT%H:%M:%S')
-@click.option('--count', type=int, default=2000, help='Max number of granules to search earthaccess for')
-@click.option('--bounding_box', type=(float, float, float, float), help='lower_left_lon lower_left_lat upper_right_lon upper_right_lat')
+@click.option('--granule_name', type=str, default='', help='Match granule_name with wildcards. Ex: "*AV320241105t182946*"')
+@click.option('--temporal', type=(click.DateTime(), click.DateTime()), default=None, help='Start and end time: %Y-%m-%dT%H:%M:%S %Y-%m-%dT%H:%M:%S')
+#@click.option('--count', type=int, default=2000, help='Max number of granules to search earthaccess for')
+@click.option('--bounding_box', type=(float, float, float, float), default=(-180, -90, 180, 90), help='lower_left_lon lower_left_lat upper_right_lon upper_right_lat')
+#@click.option('--cloud_cover', type=(float, float), default=(0, 100), help='Range of cloud covers to include')
 @click.option('--overwrite', is_flag=True, default=False, help='Set to true to overwrite granules (download them again)')
-@click.option('--symlinks_folder', type=click.Path(exists=True, dir_okay=True, file_okay=False), help = 'Location to put symlinks')
+@click.option('--symlinks_folder', type=click.Path(exists=True, dir_okay=True, file_okay=False), default=None, help = 'Location to put symlinks')
 @click.option('--search_only', is_flag=True, default=False, help='Location to put symlinks')
 @click.option('--do_rdn', is_flag=True, default=False, help='Download the radiance data too (this is slow, so only use if needed)')
 def find_download_and_combine(output_folder, 
+                              granule_name = '',
                               temporal = None, 
-                              count = 2000,
-                              bounding_box = None,
+#                              count = 2000, # The DataGranules() interface does not accept count
+                              bounding_box = (-180, -90, 180, 90),
+#                              cloud_cover = (-1, 101), # Doesn't seem to work for AV3
                               overwrite = False,
                               symlinks_folder = None,
                               search_only = False,
@@ -49,10 +53,16 @@ def find_download_and_combine(output_folder,
 
     python earthaccess_helpers.py /store/jfahlen/test/av3_October_2024 --temporal 2024-10-04T16:00:00 2024-10-04T17:00:00 --bounding_box -103.74460188 32.22680624 -103.74481188 32.22700624 --search_only
     '''
-    r_ghg = earthaccess.search_data(short_name = 'AV3_L2B_GHG_2358',
-                                    temporal = temporal, count = count, bounding_box = bounding_box)
-    r_rdn = earthaccess.search_data(short_name = 'AV3_L1B_RDN_2356',
-                                    temporal = temporal, count = count, bounding_box = bounding_box)
+    #r_ghg = earthaccess.search_data(short_name = 'AV3_L2B_GHG_2358',
+    #                                temporal = temporal, count = count, bounding_box = bounding_box)
+    #r_rdn = earthaccess.search_data(short_name = 'AV3_L1B_RDN_2356',
+    #                                temporal = temporal, count = count, bounding_box = bounding_box)
+    DG_ghg = earthaccess.DataGranules()
+    DG_rdn = earthaccess.DataGranules()
+    DG_ghg.parameters(granule_name=granule_name, temporal=temporal, bounding_box=bounding_box, short_name = 'AV3_L2B_GHG_2358')
+    DG_rdn.parameters(granule_name=granule_name, temporal=temporal, bounding_box=bounding_box, short_name = 'AV3_L1B_RDN_2356')
+    r_ghg = DG_ghg.get()
+    r_rdn = DG_rdn.get()
 
     earthaccess_fids = [g['meta']['native-id'] for g in r_ghg] # Ex: AV320241008t193024_003_L2B_GHG_1
     
