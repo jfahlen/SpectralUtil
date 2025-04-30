@@ -109,6 +109,8 @@ def load_data(input_file, lazy=True, load_glt=False, load_loc=False):
             - Metadata: An object containing the appropriate metadata
             - numpy.ndarray or netCDF4.Variable: The data, either as a lazy-loaded variable or a fully loaded numpy array.
     """
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(f'{input_file} not found.')
     if input_file.endswith(('.hdr', '.dat', '.img')) or '.' not in os.path.basename(input_file):
         return open_envi(input_file, lazy=lazy)
     elif input_file.endswith('.nc'):
@@ -401,7 +403,7 @@ def open_airborne_rdn(input_file, lazy=True):
         # need to consider some clever solutions.  In the meantime, this works, but is expensive
         rdn = np.transpose(ds['radiance']['radiance'], (1,2,0))
     else:
-        rdn = np.transponse(ds['radiance']['radiance'][:], (1,2,0))
+        rdn = np.transpose(ds['radiance']['radiance'][:], (1,2,0))
     
     meta = SpectralMetadata(wl, fwhm, trans, proj, glt=None, pre_orthod=True, nodata_value=nodata_value)
 
