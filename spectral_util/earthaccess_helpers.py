@@ -19,6 +19,7 @@ import spec_io
 @click.option('--symlinks_folder', type=click.Path(exists=True, dir_okay=True, file_okay=False), default=None, help = 'Location to put symlinks')
 @click.option('--search_only', is_flag=True, default=False, help='Location to put symlinks')
 @click.option('--do_rdn', is_flag=True, default=False, help='Download the radiance data too (this is slow, so only use if needed)')
+@click.option('--do_join_into_vrt', type=bool, default=True, help='Join into VRT files')
 def find_download_and_combine(output_folder, 
                               granule_name = '',
                               temporal = None, 
@@ -28,7 +29,8 @@ def find_download_and_combine(output_folder,
                               overwrite = False,
                               symlinks_folder = None,
                               search_only = False,
-                              do_rdn = False):
+                              do_rdn = False,
+                              do_join_into_vrt = True):
     '''Find, download, and combine into VRTs all matching granules and store in OUTPUT_FOLDER
 
     Recommended usage: start with --search_only to review FIDs before downloading
@@ -91,11 +93,12 @@ def find_download_and_combine(output_folder,
     fids = sorted(list(set([x.split('_')[0] for x in earthaccess_fids]))) # Ex: AV320241008t193024
 
     # Make vrt files that combine each scene in a pass into one vrt file
-    fids_with_scene_numbers = [] # Ex: AV320231008t145024_000_001
-    for fid in fids:
-        fid_with_scene_numbers = join_AV3_scenes_as_VRT(fid, granule_path, output_folder, do_rdn = do_rdn)
-        fids_with_scene_numbers.append(fid_with_scene_numbers)
-        join_AV3_scenes_as_VRT_pixel_time_only(fid, granule_path, output_folder)
+    if do_join_into_vrt:
+        fids_with_scene_numbers = [] # Ex: AV320231008t145024_000_001
+        for fid in fids:
+            fid_with_scene_numbers = join_AV3_scenes_as_VRT(fid, granule_path, output_folder, do_rdn = do_rdn)
+            fids_with_scene_numbers.append(fid_with_scene_numbers)
+            join_AV3_scenes_as_VRT_pixel_time_only(fid, granule_path, output_folder)
     
     # Make symlinks to the granules folder in the symlinks_folder
     if symlinks_folder is not None:
