@@ -314,6 +314,8 @@ def open_netcdf(input_file, lazy=True, load_glt=False, load_loc=False):
         return open_emit_rdn(input_file, lazy=lazy, load_glt=load_glt)
     elif ('emit' in input_filename.lower() and 'obs' in input_filename.lower()):
         return open_emit_obs_nc(input_file, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
+    elif ('emit' in input_filename.lower() and 'l2a_mask' in input_filename.lower()):
+        return open_emit_l2a_mask_nc(input_file, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
     elif 'AV3' in input_filename and 'RFL' in input_filename:
         return open_airborne_rfl(input_file, lazy=lazy)
     elif 'AV3' in input_filename and 'RDN' in input_filename:
@@ -359,6 +361,42 @@ def open_emit_rdn(input_file, lazy=True, load_glt=False):
     meta = SpectralMetadata(wl, fwhm, trans, proj, glt, pre_orthod=False, nodata_value=nodata_value)
 
     return meta, rdn
+
+def open_emit_l2a_mask_nc(input_file, lazy=True, load_glt=False, load_loc=False):
+    """
+    Opens an EMIT L2A_MASK NetCDF file and extracts the spectral metadata and mask data.
+
+    Args:
+        input_file (str): Path to the NetCDF file.
+        lazy (bool, optional): Ignored
+
+    Returns:
+        tuple: A tuple containing:
+            - GenericGeoMetadata: An object containing the band names
+            - numpy.ndarray or netCDF4.Variable: The mask data
+    """
+    ds = nc.Dataset(input_file)
+    proj = ds.spatial_ref
+    trans = ds.geotransform
+
+    mask_names = list(ds['sensor_band_parameters']['mask_bands'][...])
+
+    nodata_value = float(ds['mask']._FillValue)
+    glt = None
+    if load_glt:
+        glt = np.stack([ds['location']['glt_x'][:],ds['location']['glt_y'][:]],axis=-1)
+    loc = None
+    if load_loc:
+        loc = np.stack([ds['location']['lon'][:],ds['location']['lat'][:]],axis=-1)
+
+    # Don't have a good solution for lazy here, temporarily ignoring...
+    if lazy:
+        logging.warning("Lazy loading not supported for L2A mask data.")
+    mask = ds['mask'][...]
+    
+    meta = GenericGeoMetadata(mask_names, trans, proj, glt=glt, pre_orthod=True, nodata_value=nodata_value, loc=loc)
+
+    return meta, mask
 
 def open_emit_obs_nc(input_file, lazy=True, load_glt=False, load_loc=False):
     """
@@ -592,3 +630,30 @@ def create_envi_file(output_file, data_shape, meta, dtype=np.dtype(np.float32)):
     header['data ignore value'] = str(meta.nodata_value)
 
     envi.write_envi_header(envi_header(output_file), header) 
+
+def write_geotiff(data, meta, output_filename):
+    """
+    Creates a geotiff file with the given data and metadata.
+
+    Args:
+        data: data to write: nx, ny, nbands
+        meta (GenericGeoMetadata): The metadata
+        output_filename: Output file name (should include the .tif)
+    """
+    write_data = data
+    if len(write_data.shape) == 2:
+        write_data = data.copy()[:,:,None]
+
+    driver = gdal.GetDriverByName('GTiff')
+    outDataset = driver.Create(output_filename, 
+                               write_data.shape[1], write_data.shape[0], write_data.shape[2],
+                               gdal.GDT_Float32, options = ['COMPRESS=LZW'])
+
+    for i in range(write_data.shape[-1]):
+        outDataset.GetRasterBand(i+1).WriteArray(write_data[:,:,i])
+        outDataset.GetRasterBand(i+1).SetNoDataValue(-9999)
+
+    outDataset.SetProjection(meta.projection)
+    outDataset.SetGeoTransform(meta.geotransform)
+    outDataset.FlushCache() ##saves to disk!!
+    outDataset = None
