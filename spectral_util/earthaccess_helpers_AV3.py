@@ -90,7 +90,15 @@ def find_download_and_combine(output_folder,
         folders = glob.glob(granule_path)
         for folder in folders:
             dst = os.path.join(symlinks_folder, os.path.split(folder)[-1])
-            os.symlink(folder, dst)
+            if os.path.islink(dst): # link exists
+                if os.path.exists(dst): # target exists (link is not broken)
+                    print(f'Valid link {dst} already exists')
+                    pass
+                else: # link is broken, remove existing link and update it
+                    os.remove(dst.rstrip('/').rstrip('\\'))
+                    os.symlink(folder, dst)
+            else: # link did not exist, so create it
+                os.symlink(folder, dst)
 
 def join_AV3_scenes_as_VRT_pixel_time_only(fid, storage_location, output_location):
     folders = glob.glob(os.path.join(storage_location, f'{fid}_*'))
