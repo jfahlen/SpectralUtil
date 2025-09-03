@@ -45,7 +45,7 @@ class GenericGeoMetadata:
 
 
 class SpectralMetadata:
-    def __init__(self, wavelengths, fwhm, geotransform=None, projection=None, glt=None, pre_orthod=False, nodata_value=None):
+    def __init__(self, wavelengths, fwhm, geotransform=None, projection=None, glt=None, pre_orthod=False, nodata_value=None, band_names=None):
         """
         Initializes the SpectralMetadata object.
 
@@ -66,6 +66,7 @@ class SpectralMetadata:
         self.glt = glt
         self.pre_orthod = False
         self.nodata_value = nodata_value
+        self.band_names = band_names
 
         if pre_orthod:
             self.orthoable = False
@@ -92,7 +93,7 @@ class SpectralMetadata:
             return np.where(np.logical_and(self.wl >= wl - buffer, self.wl <= wl + buffer))
 
 
-def load_data(input_file, lazy=True, load_glt=False, load_loc=False):
+def load_data(input_file, lazy=True, load_glt=False, load_loc=False, mask_type=None, return_loc_from_l1b_rad_nc=False):
     """
     Loads a file and extracts the spectral metadata and data.
 
@@ -100,6 +101,7 @@ def load_data(input_file, lazy=True, load_glt=False, load_loc=False):
         input_file (str): Path to the input file.
         lazy (bool, optional): If True, loads the data lazily. Defaults to True.
         load_glt (bool, optional): If True, loads the glt for orthoing. Defaults to False.
+        return_loc_from_l1b_rad
 
     Raises:
         ValueError: If the file type is unknown.
@@ -116,7 +118,8 @@ def load_data(input_file, lazy=True, load_glt=False, load_loc=False):
     if input_filename.endswith(('.hdr', '.dat', '.img')) or '.' not in input_filename:
         return open_envi(input_file, lazy=lazy)
     elif input_filename.endswith('.nc'):
-        return open_netcdf(input_file, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
+        return open_netcdf(input_file, lazy=lazy, load_glt=load_glt, load_loc=load_loc, 
+                           mask_type=mask_type, return_loc_from_l1b_rad_nc=return_loc_from_l1b_rad_nc)
     elif input_filename.endswith('.tif') or input_filename.endswith('.vrt'):
         return open_tif(input_file, lazy=lazy)
     else:
@@ -238,20 +241,26 @@ def open_envi(input_file, lazy=True):
     else:
         nodata_value = -9999 # set default
 
+    if 'band names' in imeta:
+        band_names = imeta['band names']
+    else:
+        band_names = 'None'
+
     if 'coordinate system string' in imeta:
         css = imeta['coordinate system string']
         proj = css if type(css) == str else ','.join(css)
     else:
         proj = None
+
+    map_info, trans = None, None
     if 'map info' in imeta:
-        map_info = imeta['map info'].split(',') if type(imeta['map info']) == str else imeta['map info']
-        rotation=0
-        for val in map_info:
-            if 'rotation=' in val:
-                rotation = float(val.replace('rotation=','').strip())
-        trans = [float(map_info[3]), float(map_info[5]), rotation, float(map_info[4]), rotation, -float(map_info[6])]
-    else:
-        map_info, trans = None, None
+        if imeta['map info'][0] != '':
+            map_info = imeta['map info'].split(',') if type(imeta['map info']) == str else imeta['map info']
+            rotation=0
+            for val in map_info:
+                if 'rotation=' in val:
+                    rotation = float(val.replace('rotation=','').strip())
+            trans = [float(map_info[3]), float(map_info[5]), rotation, float(map_info[4]), rotation, -float(map_info[6])]
     
     glt = None
     if 'glt' in os.path.basename(input_file).lower():
@@ -262,7 +271,7 @@ def open_envi(input_file, lazy=True):
     else:
         rfl = ds.open_memmap(interleave='bip').copy()
 
-    meta = SpectralMetadata(wl, fwhm, nodata_value=nodata_value, geotransform=trans, projection=proj, glt=glt)
+    meta = SpectralMetadata(wl, fwhm, nodata_value=nodata_value, geotransform=trans, projection=proj, glt=glt, band_names=band_names)
     return meta, rfl
     
 
@@ -295,7 +304,7 @@ def open_tif(input_file, lazy=False):
     return meta, data
 
 
-def open_netcdf(input_file, lazy=True, load_glt=False, load_loc=False):
+def open_netcdf(input_file, lazy=True, load_glt=False, load_loc=False, mask_type=None, return_loc_from_l1b_rad_nc=None):
     """
     Opens a NetCDF file and extracts the metadata and data.
 
@@ -311,11 +320,14 @@ def open_netcdf(input_file, lazy=True, load_glt=False, load_loc=False):
     """
     input_filename = os.path.basename(input_file)
     if 'EMIT' in input_filename and 'RAD' in input_filename:
-        return open_emit_rdn(input_file, lazy=lazy, load_glt=load_glt)
+        if return_loc_from_l1b_rad_nc:
+            return open_loc_l1b_rad_nc(input_file, lazy=lazy, load_glt=load_glt)
+        else:
+            return open_emit_rdn(input_file, lazy=lazy, load_glt=load_glt)
     elif ('emit' in input_filename.lower() and 'obs' in input_filename.lower()):
         return open_emit_obs_nc(input_file, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
     elif ('emit' in input_filename.lower() and 'l2a_mask' in input_filename.lower()):
-        return open_emit_l2a_mask_nc(input_file, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
+        return open_emit_l2a_mask_nc(input_file, mask_type, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
     elif 'AV3' in input_filename and 'RFL' in input_filename:
         return open_airborne_rfl(input_file, lazy=lazy)
     elif 'AV3' in input_filename and 'RDN' in input_filename:
@@ -362,7 +374,7 @@ def open_emit_rdn(input_file, lazy=True, load_glt=False):
 
     return meta, rdn
 
-def open_emit_l2a_mask_nc(input_file, lazy=True, load_glt=False, load_loc=False):
+def open_loc_l1b_rad_nc(input_file, lazy=True, load_glt=False, load_loc=False):
     """
     Opens an EMIT L2A_MASK NetCDF file and extracts the spectral metadata and mask data.
 
@@ -379,9 +391,54 @@ def open_emit_l2a_mask_nc(input_file, lazy=True, load_glt=False, load_loc=False)
     proj = ds.spatial_ref
     trans = ds.geotransform
 
-    mask_names = list(ds['sensor_band_parameters']['mask_bands'][...])
+    nodata_value = float(ds['location']['lon']._FillValue)
+    glt = None
+    if load_glt:
+        glt = np.stack([ds['location']['glt_x'][:],ds['location']['glt_y'][:]],axis=-1)
+    loc = None
+    if load_loc:
+        loc = np.stack([ds['location']['lon'][:],ds['location']['lat'][:]],axis=-1)
 
-    nodata_value = float(ds['mask']._FillValue)
+    # Don't have a good solution for lazy here, temporarily ignoring...
+    if lazy:
+        logging.warning("Lazy loading not supported for L1B RAD LOC data.")
+
+    loc_plus_elev = np.stack([ds['location']['lat'], ds['location']['lon'], ds['location']['elev']], axis = -1)
+    
+    meta = GenericGeoMetadata([ds['location']['lat'].long_name, ds['location']['lon'].long_name, ds['location']['elev'].long_name], 
+                              trans, proj, glt=glt, pre_orthod=True, nodata_value=nodata_value, loc=loc)
+
+    return meta, loc_plus_elev
+
+def open_emit_l2a_mask_nc(input_file, mask_type, lazy=True, load_glt=False, load_loc=False):
+    """
+    Opens an EMIT L2A_MASK NetCDF file and extracts the spectral metadata and mask data.
+
+    Args:
+        input_file (str): Path to the NetCDF file.
+        mask_type (str): Mask type. Options are
+            'mask': L2A_MASK
+            'band_mask': L1B_BANDMASK
+        lazy (bool, optional): Ignored
+
+    Returns:
+        tuple: A tuple containing:
+            - GenericGeoMetadata: An object containing the band names
+            - numpy.ndarray or netCDF4.Variable: The mask data
+    """
+    if not mask_type in ['mask', 'band_mask']:
+        raise ValueError(f"Invalid mask type {mask_type}. Must use either 'mask' or 'band_mask'")
+
+    ds = nc.Dataset(input_file)
+    proj = ds.spatial_ref
+    trans = ds.geotransform
+
+    if mask_type == 'mask':
+        mask_names = list(ds['sensor_band_parameters']['mask_bands'][...])
+    else:
+        mask_names = ['']
+
+    nodata_value = float(ds[mask_type]._FillValue)
     glt = None
     if load_glt:
         glt = np.stack([ds['location']['glt_x'][:],ds['location']['glt_y'][:]],axis=-1)
@@ -392,7 +449,8 @@ def open_emit_l2a_mask_nc(input_file, lazy=True, load_glt=False, load_loc=False)
     # Don't have a good solution for lazy here, temporarily ignoring...
     if lazy:
         logging.warning("Lazy loading not supported for L2A mask data.")
-    mask = ds['mask'][...]
+    
+    mask = np.array(ds[mask_type][...])
     
     meta = GenericGeoMetadata(mask_names, trans, proj, glt=glt, pre_orthod=True, nodata_value=nodata_value, loc=loc)
 
@@ -625,7 +683,13 @@ def create_envi_file(output_file, data_shape, meta, dtype=np.dtype(np.float32)):
     if 'fwhm' in meta.__dict__ and meta.fwhm is not None:
         header['fwhm'] = '{ ' + ', '.join(map(str, meta.fwhm)) + ' }'
     if 'band_names' in meta.__dict__ and meta.band_names is not None:
-        header['band names'] = '{ ' + ', '.join(meta.band_names) + ' }'
+        if isinstance(meta.band_names, str):
+            header['band names'] = '{ ' + meta.band_names + ' }'
+        elif isinstance(meta.band_names, list):
+            header['band names'] = '{ ' + ', '.join(meta.band_names) + ' }'
+        else:
+            # Not sure what to do now, so just write it out as if it were a list
+            header['band names'] = '{ ' + ', '.join(meta.band_names) + ' }'
 
     header['data ignore value'] = str(meta.nodata_value)
 
