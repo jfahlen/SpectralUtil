@@ -330,6 +330,8 @@ def open_netcdf(input_file, lazy=True, load_glt=False, load_loc=False, mask_type
         return open_emit_l2a_mask_nc(input_file, mask_type, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
     elif 'AV3' in input_filename and 'RFL' in input_filename:
         return open_airborne_rfl(input_file, lazy=lazy)
+    elif 'AV3' in input_filename and 'BANDMASK' in input_filename:
+        return open_av3_bandmask_nc(input_file, lazy=lazy)
     elif 'AV3' in input_filename and 'RDN' in input_filename:
         return open_airborne_rdn(input_file, lazy=lazy)
     elif ('av3' in input_filename.lower() or 'ang' in input_filename.lower()) and 'OBS' in input_filename:
@@ -409,6 +411,33 @@ def open_loc_l1b_rad_nc(input_file, lazy=True, load_glt=False, load_loc=False):
                               trans, proj, glt=glt, pre_orthod=True, nodata_value=nodata_value, loc=loc)
 
     return meta, loc_plus_elev
+
+def open_av3_bandmask_nc(input_file, lazy=True, load_glt=False, load_loc=False):
+    """
+    Opens an EMIT L2A_MASK NetCDF file and extracts the spectral metadata and mask data.
+
+    Args:
+        input_file (str): Path to the NetCDF file.
+        lazy (bool, optional): Ignored
+
+    Returns:
+        tuple: A tuple containing:
+            - GenericGeoMetadata: An object containing the band names
+            - numpy.ndarray or netCDF4.Variable: The mask data
+    """
+    ds = nc.Dataset(input_file)
+
+    nodata_value = float(ds['band_mask']._FillValue)
+
+    # Don't have a good solution for lazy here, temporarily ignoring...
+    if lazy:
+        logging.warning("Lazy loading not supported for BANDMASK data.")
+    
+    mask = np.array(ds['band_mask'][...])
+    
+    meta = GenericGeoMetadata(None, None, None, glt=None, pre_orthod=True, nodata_value=nodata_value, loc=None)
+
+    return meta, mask.transpose([1,2,0])
 
 def open_emit_l2a_mask_nc(input_file, mask_type, lazy=True, load_glt=False, load_loc=False):
     """
