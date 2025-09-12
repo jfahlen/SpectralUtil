@@ -333,7 +333,10 @@ def open_netcdf(input_file, lazy=True, load_glt=False, load_loc=False, mask_type
     elif 'AV3' in input_filename and 'BANDMASK' in input_filename:
         return open_av3_bandmask_nc(input_file, lazy=lazy)
     elif 'AV3' in input_filename and 'RDN' in input_filename:
-        return open_airborne_rdn(input_file, lazy=lazy)
+        if return_loc_from_l1b_rad_nc:
+            return open_loc_l1b_rad_nc(input_file, lazy=lazy, load_glt=load_glt)
+        else:
+            return open_airborne_rdn(input_file, lazy=lazy)
     elif ('av3' in input_filename.lower() or 'ang' in input_filename.lower()) and 'OBS' in input_filename:
         return open_airborne_obs(input_file, lazy=lazy, load_glt=load_glt, load_loc=load_loc)
     elif 'ang' in input_filename.lower()  and 'rfl' in input_filename.lower():
@@ -378,7 +381,7 @@ def open_emit_rdn(input_file, lazy=True, load_glt=False):
 
 def open_loc_l1b_rad_nc(input_file, lazy=True, load_glt=False, load_loc=False):
     """
-    Opens an EMIT L2A_MASK NetCDF file and extracts the spectral metadata and mask data.
+    Opens an EMIT L1B RAD NetCDF file and extracts LOC data
 
     Args:
         input_file (str): Path to the NetCDF file.
@@ -390,24 +393,30 @@ def open_loc_l1b_rad_nc(input_file, lazy=True, load_glt=False, load_loc=False):
             - numpy.ndarray or netCDF4.Variable: The mask data
     """
     ds = nc.Dataset(input_file)
-    proj = ds.spatial_ref
-    trans = ds.geotransform
+    
+    proj = ds.spatial_ref if hasattr(ds, 'spatial_ref') else None
+    trans = ds.geotransform if hasattr(ds, 'geotransform') else None
 
-    nodata_value = float(ds['location']['lon']._FillValue)
+    if 'location' in ds.groups.keys():
+        ds_loc = ds['location']
+    else:
+        ds_loc = ds
+
+    nodata_value = float(ds_loc['lon']._FillValue)
     glt = None
     if load_glt:
-        glt = np.stack([ds['location']['glt_x'][:],ds['location']['glt_y'][:]],axis=-1)
+        glt = np.stack([ds_loc['glt_x'][:],ds_loc['glt_y'][:]],axis=-1)
     loc = None
     if load_loc:
-        loc = np.stack([ds['location']['lon'][:],ds['location']['lat'][:]],axis=-1)
+        loc = np.stack([ds_loc['lon'][:],ds_loc['lat'][:]],axis=-1)
 
     # Don't have a good solution for lazy here, temporarily ignoring...
     if lazy:
         logging.warning("Lazy loading not supported for L1B RAD LOC data.")
 
-    loc_plus_elev = np.stack([ds['location']['lat'], ds['location']['lon'], ds['location']['elev']], axis = -1)
+    loc_plus_elev = np.stack([ds_loc['lat'], ds_loc['lon'], ds_loc['elev']], axis = -1)
     
-    meta = GenericGeoMetadata([ds['location']['lat'].long_name, ds['location']['lon'].long_name, ds['location']['elev'].long_name], 
+    meta = GenericGeoMetadata([ds_loc['lat'].long_name, ds_loc['lon'].long_name, ds_loc['elev'].long_name], 
                               trans, proj, glt=glt, pre_orthod=True, nodata_value=nodata_value, loc=loc)
 
     return meta, loc_plus_elev
