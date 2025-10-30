@@ -171,7 +171,7 @@ def join_EMIT_scenes_as_VRT(orbit_id, granule_storage_location, output_location,
             # The L2A mask file is not orthorectified, so do it here and save at tif.
             # Append the tif filename instead of the .nc filename
             if tag == 'L2A_MASK': 
-                m, d = spec_io.load_data(fs, load_glt = True, load_loc = True)
+                m, d = spec_io.load_data(fs, mask_type = 'mask', load_glt = True, load_loc = True)
                 d_ort = spec_io.ortho_data(d, m.glt)
                 fs = os.path.splitext(fs)[0] +  '.tif'
                 spec_io.write_geotiff(d_ort, m, fs)
