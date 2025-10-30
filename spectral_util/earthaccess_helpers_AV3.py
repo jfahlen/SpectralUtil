@@ -90,7 +90,15 @@ def find_download_and_combine(output_folder,
         folders = glob.glob(granule_path)
         for folder in folders:
             dst = os.path.join(symlinks_folder, os.path.split(folder)[-1])
-            os.symlink(folder, dst)
+            if os.path.islink(dst): # link exists
+                if os.path.exists(dst): # target exists (link is not broken)
+                    print(f'Valid link {dst} already exists')
+                    pass
+                else: # link is broken, remove existing link and update it
+                    os.remove(dst.rstrip('/').rstrip('\\'))
+                    os.symlink(folder, dst)
+            else: # link did not exist, so create it
+                os.symlink(folder, dst)
 
 def join_AV3_scenes_as_VRT_pixel_time_only(fid, storage_location, output_location):
     folders = glob.glob(os.path.join(storage_location, f'{fid}_*'))
@@ -106,7 +114,7 @@ def join_AV3_scenes_as_VRT_pixel_time_only(fid, storage_location, output_locatio
         d_obs_ort = spec_io.ortho_data(d_obs[:,:,0], m_obs.glt)
 
         # Save the orthoed times to tif so we can make a vrt below
-        write_geotiff(d_obs_ort, m_obs, out_tif)
+        spec_io.write_geotiff(d_obs_ort, m_obs, out_tif)
 
         j['OBS_ORT_times_only'] = out_tif
         json.dump(j, open(os.path.join(folder, 'data_files.json'),'w'), indent = 4)
@@ -174,7 +182,7 @@ def join_AV3_scenes_as_VRT(fid, granule_storage_location, output_location,
 
             # Make orthoed tif so we can create a vrt below
             rdn_ort_tif_filename = '.'.join(rdn_filename.strip().split('.')[:-1]) + '_ORT.tif'
-            write_geotiff(rgb_data, m_obs, rdn_ort_tif_filename)
+            spec_io.write_geotiff(rgb_data, m_obs, rdn_ort_tif_filename)
 
             j['RDN_QL_ORT'] = rdn_ort_tif_filename
             json.dump(j, open(os.path.join(folder, 'data_files.json'),'w'), indent = 4)
@@ -187,25 +195,6 @@ def join_AV3_scenes_as_VRT(fid, granule_storage_location, output_location,
     
     return fid_with_scene_numbers
 
-def write_geotiff(data, meta, output_filename):
-    write_data = data
-    if len(write_data.shape) == 2:
-        write_data = data.copy()[:,:,None]
-
-    driver = gdal.GetDriverByName('GTiff')
-    outDataset = driver.Create(output_filename, 
-                               write_data.shape[1], write_data.shape[0], write_data.shape[2],
-                               gdal.GDT_Float32, options = ['COMPRESS=LZW'])
-
-    for i in range(write_data.shape[-1]):
-        outDataset.GetRasterBand(i+1).WriteArray(write_data[:,:,i])
-        outDataset.GetRasterBand(i+1).SetNoDataValue(-9999)
-
-    outDataset.SetProjection(meta.projection)
-    outDataset.SetGeoTransform(meta.geotransform)
-    outDataset.FlushCache() ##saves to disk!!
-    outDataset = None
-    
 def download_an_AV3_granule(rdn_granule, ghg_granule, storage_location, overwrite = False):
     name = ghg_granule['meta']['native-id']
     output_folder = os.path.join(storage_location, name)
