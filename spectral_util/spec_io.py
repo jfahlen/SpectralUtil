@@ -381,16 +381,18 @@ def open_emit_rdn(input_file, lazy=True, load_glt=False):
 
 def open_loc_l1b_rad_nc(input_file, lazy=True, load_glt=False, load_loc=False):
     """
-    Opens an EMIT L1B RAD NetCDF file and extracts LOC data
+    Opens an EMIT L1B LOC NetCDF file and extracts LOC data
 
     Args:
         input_file (str): Path to the NetCDF file.
         lazy (bool, optional): Ignored
+        load_glt (bool, optional): If True, loads the glt for orthoing. Defaults to False.
+        load_loc (bool, optional): If True, loads the loc and stores in in the meta datag. Defaults to False.
 
     Returns:
         tuple: A tuple containing:
             - GenericGeoMetadata: An object containing the band names
-            - numpy.ndarray or netCDF4.Variable: The mask data
+            - numpy.ndarray or netCDF4.Variable: The loc data
     """
     ds = nc.Dataset(input_file)
     
@@ -450,13 +452,14 @@ def open_av3_bandmask_nc(input_file, lazy=True, load_glt=False, load_loc=False):
 
 def open_emit_l2a_mask_nc(input_file, mask_type, lazy=True, load_glt=False, load_loc=False):
     """
-    Opens an EMIT L2A_MASK NetCDF file and extracts the spectral metadata and mask data.
+    Opens an EMIT L2A_MASK or L1B_BANDMASK NetCDF file and extracts the spectral metadata and mask data.
 
     Args:
         input_file (str): Path to the NetCDF file.
         mask_type (str): Mask type. Options are
-            'mask': L2A_MASK
-            'band_mask': L1B_BANDMASK
+            'mask': L2A_MASK, in this case input_file should be an L2A_MASK file
+            'band_mask': L1B_BANDMASK, in this case input_file should be an EMIT L2A_MASK file
+                         or an AV3 L1B_RDN file
         lazy (bool, optional): Ignored
 
     Returns:
@@ -486,7 +489,7 @@ def open_emit_l2a_mask_nc(input_file, mask_type, lazy=True, load_glt=False, load
 
     # Don't have a good solution for lazy here, temporarily ignoring...
     if lazy:
-        logging.warning("Lazy loading not supported for L2A mask data.")
+        logging.warning("Lazy loading not supported for L2A or L1B mask data.")
     
     mask = np.array(ds[mask_type][...])
     
